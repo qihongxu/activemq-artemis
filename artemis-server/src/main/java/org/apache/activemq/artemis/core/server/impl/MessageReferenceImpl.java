@@ -166,6 +166,16 @@ public class MessageReferenceImpl extends LinkedListImpl.Node<MessageReferenceIm
    }
 
    @Override
+   public byte getPriority() {
+      return getMessage().getPriority();
+   }
+
+   @Override
+   public boolean isDurable() {
+      return getMessage().isDurable();
+   }
+
+   @Override
    public void handled() {
       queue.referenceHandled(this);
    }

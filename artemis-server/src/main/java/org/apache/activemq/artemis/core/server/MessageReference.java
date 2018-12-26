@@ -42,6 +42,10 @@ public interface MessageReference {
 
    long getMessageID();
 
+   byte getPriority();
+
+   boolean isDurable();
+
    SimpleString getLastValueProperty();
 
    /**

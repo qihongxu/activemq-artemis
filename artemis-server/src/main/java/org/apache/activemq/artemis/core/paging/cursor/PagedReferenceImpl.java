@@ -74,6 +74,10 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl> 
 
    private long messageSize = -1;
 
+   private byte priority;
+
+   private boolean durable;
+
    @Override
    public Object getProtocolData() {
       return protocolData;
@@ -120,6 +124,8 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl> 
          this.largeMessage = message.getMessage().isLargeMessage() ? IS_LARGE_MESSAGE : IS_NOT_LARGE_MESSAGE;
          this.transactionID = message.getTransactionID();
          this.messageID = message.getMessage().getMessageID();
+         this.priority = message.getMessage().getPriority();
+         this.durable = message.getMessage().isDurable();
 
          //pre-cache the message size so we don't have to reload the message later if it is GC'd
          getPersistentSize();
@@ -128,6 +134,8 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl> 
          this.transactionID = -2;
          this.messageID = -1;
          this.messageSize = -1;
+         this.priority = -1;
+         this.durable = false;
       }
    }
 
@@ -361,6 +369,22 @@ public class PagedReferenceImpl extends LinkedListImpl.Node<PagedReferenceImpl> 
          }
       }
       return messageSize;
+   }
+
+   @Override
+   public byte getPriority() {
+      if (priority == -1) {
+         priority = getMessage().getPriority();
+      }
+      return priority;
+   }
+
+   @Override
+   public boolean isDurable() {
+      if (messageID < 0) {
+         durable = getMessage().isDurable();
+      }
+      return durable;
    }
 
 }
