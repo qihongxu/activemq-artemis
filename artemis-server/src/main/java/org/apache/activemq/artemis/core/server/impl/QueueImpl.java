@@ -2410,7 +2410,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
     * This method will deliver as many messages as possible until all consumers are busy or there
     * are no more matching or available messages.
     */
-   private void deliver() {
+   private boolean deliver() {
       if (logger.isDebugEnabled()) {
          logger.debug(this + " doing deliver. messageReferences=" + messageReferences.size());
       }
@@ -2435,7 +2435,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
 
             deliverAsync();
 
-            return;
+            return false;
          }
 
          if (System.currentTimeMillis() > timeout) {
@@ -2445,7 +2445,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
 
             deliverAsync();
 
-            return;
+            return false;
          }
 
          MessageReference ref;
@@ -2456,7 +2456,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
 
             // Need to do these checks inside the synchronized
             if (paused || !canDispatch() && redistributor == null) {
-               return;
+               return false;
             }
 
             if (messageReferences.size() == 0) {
@@ -2604,7 +2604,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
          }
       }
 
-      checkDepage();
+      return true;
    }
 
    protected void removeMessageReference(ConsumerHolder<? extends Consumer> holder, MessageReference ref) {
@@ -3460,13 +3460,19 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
             // We will be using the deliverRunner instance as the guard object to avoid multiple threads executing
             // an asynchronous delivery
             enterCritical(CRITICAL_DELIVER);
+            boolean needCheckDepage = false;
             try {
                synchronized (QueueImpl.this.deliverRunner) {
-                  deliver();
+                  needCheckDepage = deliver();
                }
             } finally {
                leaveCritical(CRITICAL_DELIVER);
             }
+
+            if (needCheckDepage) {
+               checkDepage();
+            }
+
          } catch (Exception e) {
             ActiveMQServerLogger.LOGGER.errorDelivering(e);
          } finally {
