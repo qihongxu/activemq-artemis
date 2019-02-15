@@ -26,6 +26,8 @@ public class QueueAttributes implements Serializable {
    public static final String DURABLE = "durable";
    public static final String MAX_CONSUMERS = "max-consumers";
    public static final String EXCLUSIVE = "exclusive";
+   public static final String GROUP_REBALANCE = "group-rebalance";
+   public static final String GROUP_BUCKETS = "group-buckets";
    public static final String LAST_VALUE = "last-value";
    public static final String LAST_VALUE_KEY = "last-value-key";
    public static final String NON_DESTRUCTIVE = "non-destructive";
@@ -38,6 +40,8 @@ public class QueueAttributes implements Serializable {
    private Boolean durable;
    private Integer maxConsumers;
    private Boolean exclusive;
+   private Boolean groupRebalance;
+   private Integer groupBuckets;
    private Boolean lastValue;
    private SimpleString lastValueKey;
    private Boolean nonDestructive;
@@ -69,6 +73,10 @@ public class QueueAttributes implements Serializable {
             setConsumersBeforeDispatch(Integer.valueOf(value));
          } else if (key.equals(DELAY_BEFORE_DISPATCH)) {
             setDelayBeforeDispatch(Long.valueOf(value));
+         } else if (key.equals(GROUP_REBALANCE)) {
+            setGroupRebalance(Boolean.valueOf(value));
+         } else if (key.equals(GROUP_BUCKETS)) {
+            setGroupBuckets(Integer.valueOf(value));
          }
       }
    }
@@ -172,4 +180,21 @@ public class QueueAttributes implements Serializable {
       return this;
    }
 
+   public Boolean getGroupRebalance() {
+      return groupRebalance;
+   }
+
+   public QueueAttributes setGroupRebalance(Boolean groupRebalance) {
+      this.groupRebalance = groupRebalance;
+      return this;
+   }
+
+   public Integer getGroupBuckets() {
+      return groupBuckets;
+   }
+
+   public QueueAttributes setGroupBuckets(Integer groupBuckets) {
+      this.groupBuckets = groupBuckets;
+      return this;
+   }
 }
