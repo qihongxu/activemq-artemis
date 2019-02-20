@@ -1478,8 +1478,7 @@ public final class ClientSessionImpl implements ClientSessionInternal, FailureLi
    @Override
    public ClientProducerCredits getCredits(final SimpleString address, final boolean anon) {
       synchronized (producerCreditManager) {
-         ClientProducerCredits credits = producerCreditManager.getCredits(address, anon, sessionContext);
-         return credits;
+         return producerCreditManager.getCredits(address, anon, sessionContext);
       }
    }
 
@@ -2001,8 +2000,7 @@ public final class ClientSessionImpl implements ClientSessionInternal, FailureLi
 
    private ClientConsumerInternal getConsumer(final ConsumerContext consumerContext) {
       synchronized (consumers) {
-         ClientConsumerInternal consumer = consumers.get(consumerContext);
-         return consumer;
+         return consumers.get(consumerContext);
       }
    }
 
