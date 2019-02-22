@@ -1332,10 +1332,12 @@ public final class ClientSessionImpl implements ClientSessionInternal, FailureLi
    // Needs to be synchronized to prevent issues with occurring concurrently with close()
 
    @Override
-   public void handleFailover(final RemotingConnection backupConnection, ActiveMQException cause) {
+   public boolean handleFailover(final RemotingConnection backupConnection, ActiveMQException cause) {
+      boolean suc = true;
+
       synchronized (this) {
          if (closed) {
-            return;
+            return true;
          }
 
          boolean resetCreditManager = false;
@@ -1408,6 +1410,7 @@ public final class ClientSessionImpl implements ClientSessionInternal, FailureLi
             }
          } catch (Throwable t) {
             ActiveMQClientLogger.LOGGER.failedToHandleFailover(t);
+            suc = false;
          } finally {
             sessionContext.releaseCommunications();
          }
@@ -1429,6 +1432,8 @@ public final class ClientSessionImpl implements ClientSessionInternal, FailureLi
       }
 
       sessionContext.resetMetadata(metaDataToSend);
+
+      return suc;
 
    }
 
