@@ -54,7 +54,6 @@ public class QueueAttributes implements Serializable {
    private Boolean autoDelete;
    private Long autoDeleteDelay;
    private Long autoDeleteMessageCount;
-   
 
    public void set(String key, String value) {
       if (key != null && value != null) {

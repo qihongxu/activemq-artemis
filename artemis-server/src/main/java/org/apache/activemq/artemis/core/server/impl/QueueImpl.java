@@ -42,6 +42,8 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.locks.ReentrantLock;
+
 import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
 import org.apache.activemq.artemis.api.core.ActiveMQNullRefException;
@@ -214,6 +216,9 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
    private final AtomicInteger scheduledRunners = new AtomicInteger(0);
 
    private final Runnable deliverRunner = new DeliverRunner();
+
+   //This lock is used to prevent deadlocks between direct and async deliveries
+   private final ReentrantLock deliverLock = new ReentrantLock();
 
    private volatile boolean depagePending = false;
 
@@ -886,7 +891,7 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
             return;
          }
 
-         if (supportsDirectDeliver && !directDeliver && direct && System.currentTimeMillis() - lastDirectDeliveryCheck > CHECK_QUEUE_SIZE_PERIOD) {
+         if (direct && supportsDirectDeliver && !directDeliver && System.currentTimeMillis() - lastDirectDeliveryCheck > CHECK_QUEUE_SIZE_PERIOD) {
             if (logger.isTraceEnabled()) {
                logger.trace("Checking to re-enable direct deliver on queue " + this.getName());
             }
@@ -3106,87 +3111,97 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
     * This method delivers the reference on the callers thread - this can give us better latency in the case there is nothing in the queue
     */
    private boolean deliverDirect(final MessageReference ref) {
-      synchronized (this) {
-         if (!supportsDirectDeliver) {
-            // this should never happen, but who knows?
-            // if someone ever change add and removeConsumer,
-            // this would protect any eventual bug
-            return false;
-         }
-         if (paused || !canDispatch() && redistributor == null) {
-            return false;
-         }
-
-         if (checkExpired(ref)) {
-            return true;
-         }
-
-         int startPos = pos;
-
-         int size = consumerList.size();
-
-         while (true) {
-            ConsumerHolder<? extends Consumer> holder;
-            if (redistributor == null) {
-               holder = consumerList.get(pos);
-            } else {
-               holder = redistributor;
-            }
-
-            Consumer consumer = holder.consumer;
-
-            Consumer groupConsumer = null;
-
-            // If a group id is set, then this overrides the consumer chosen round-robin
-
-            SimpleString groupID = extractGroupID(ref);
-
-            if (groupID != null) {
-               groupConsumer = groups.get(groupID);
-
-               if (groupConsumer != null) {
-                  consumer = groupConsumer;
-               }
-            }
-
-            if (exclusive && redistributor == null) {
-               consumer = consumerList.get(0).consumer;
-            }
-
-            // Only move onto the next position if the consumer on the current position was used.
-            if (redistributor == null && !exclusive && groupConsumer == null) {
-               pos++;
-            }
-
-            if (pos == size) {
-               pos = 0;
-            }
-
-            HandleStatus status = handle(ref, consumer);
-
-            if (status == HandleStatus.HANDLED) {
-
-               if (redistributor == null) {
-                  handleMessageGroup(ref, consumer, groupConsumer, groupID);
-               }
-
-               messagesAdded.incrementAndGet();
-
-               deliveriesInTransit.countUp();
-               proceedDeliver(consumer, ref);
-               return true;
-            }
-
-            if (pos == startPos || redistributor != null || groupConsumer != null || exclusive) {
-               // Tried them all
-               break;
-            }
-         }
-
-         if (logger.isTraceEnabled()) {
-            logger.tracef("Queue " + getName() + " is out of direct delivery as no consumers handled a delivery");
-         }
+      //The order to enter the deliverLock re QueueImpl::this lock is very important:
+      //- acquire deliverLock::lock
+      //- acquire QueueImpl::this lock
+      //DeliverRunner::run is doing the same to avoid deadlocks.
+      //Without deliverLock, a directDeliver happening while a DeliverRunner::run
+      //could cause a deadlock.
+      //Both DeliverRunner::run and deliverDirect could trigger a ServerConsumerImpl::individualAcknowledge:
+      //- deliverDirect first acquire QueueImpl::this, then ServerConsumerImpl::this
+      //- DeliverRunner::run first acquire ServerConsumerImpl::this then QueueImpl::this
+      if (!deliverLock.tryLock()) {
+         logger.tracef("Cannot perform a directDelivery because there is a running async deliver");
          return false;
+      }
+      try {
+         synchronized (this) {
+            if (!supportsDirectDeliver) {
+               return false;
+            }
+            if (paused || !canDispatch() && redistributor == null) {
+               return false;
+            }
+
+
+            int startPos = pos;
+
+            int size = consumerList.size();
+
+            while (true) {
+               ConsumerHolder<? extends Consumer> holder;
+               if (redistributor == null) {
+                  holder = consumerList.get(pos);
+               } else {
+                  holder = redistributor;
+               }
+
+               Consumer consumer = holder.consumer;
+
+               Consumer groupConsumer = null;
+
+               // If a group id is set, then this overrides the consumer chosen round-robin
+
+               SimpleString groupID = extractGroupID(ref);
+
+               if (groupID != null) {
+                  groupConsumer = groups.get(groupID);
+
+                  if (groupConsumer != null) {
+                     consumer = groupConsumer;
+                  }
+               }
+
+               if (exclusive && redistributor == null) {
+                  consumer = consumerList.get(0).consumer;
+               }
+
+               // Only move onto the next position if the consumer on the current position was used.
+               if (redistributor == null && !exclusive && groupConsumer == null) {
+                  pos++;
+               }
+
+               if (pos == size) {
+                  pos = 0;
+               }
+
+               HandleStatus status = handle(ref, consumer);
+
+               if (status == HandleStatus.HANDLED) {
+
+                  if (redistributor == null) {
+                     handleMessageGroup(ref, consumer, groupConsumer, groupID);
+                  }
+
+                  messagesAdded.incrementAndGet();
+                  deliveriesInTransit.countUp();
+                  proceedDeliver(consumer, ref);
+                  return true;
+               }
+
+               if (pos == startPos || redistributor != null || groupConsumer != null || exclusive) {
+                  // Tried them all
+                  break;
+               }
+
+               if (logger.isTraceEnabled()) {
+                  logger.tracef("Queue " + getName() + " is out of direct delivery as no consumers handled a delivery");
+               }
+            }
+            return false;
+         }
+      } finally {
+         deliverLock.unlock();
       }
    }
 
@@ -3502,8 +3517,11 @@ public class QueueImpl extends CriticalComponentImpl implements Queue {
             enterCritical(CRITICAL_DELIVER);
             boolean needCheckDepage = false;
             try {
-               synchronized (QueueImpl.this.deliverRunner) {
+               deliverLock.lock();
+               try {
                   needCheckDepage = deliver();
+               } finally {
+                  deliverLock.unlock();
                }
             } finally {
                leaveCritical(CRITICAL_DELIVER);
